@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<SCL xmlns="http://www.iec.ch/61850/2003/SCL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2007" revision="B" release="4">
+<SCL xmlns="http://www.iec.ch/61850/2003/SCL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2007" revision="B">
   <Header id="" revision="1" version="0" toolID="INFO TECH ICD Editor" nameStructure="IEDName">
  </Header>
   <Communication>

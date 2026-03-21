@@ -15,6 +15,12 @@
           <P type="OSI-TSEL">0001</P>
         </Address>
       </ConnectedAP>
+      <ConnectedAP iedName="Client1" apName="P1">
+        <Address>
+          <P type="IP">192.168.50.187</P>
+	  <P type="IP-SUBNET">255.255.255.0</P>
+        </Address>
+      </ConnectedAP>
     </SubNetwork>
   </Communication>
   <IED name="projectDER" configVersion="1.0" type="" manufacturer="" desc="">
@@ -31,7 +37,7 @@
       <ReadWrite/>
       <ConfReportControl max="0"/>
       <GetCBValues/>
-      <ReportSettings/>
+      <ReportSettings cbName="Fix" datSet="Fix" rptID="Fix" optFields="Fix" bufTime="Fix" trgOps="Fix" intgPd="Dyn" resvTms="true" owner="true"/> 
       <GSESettings/>
       <ConfLNs/>
       <GOOSE max="0"/>
@@ -169,7 +175,7 @@
               <TrgOps dchg="true" qchg="true" dupd="true" period="true" gi="true"/>
               <OptFields seqNum="true" timeStamp="true" dataSet="true" reasonCode="true" dataRef="true" entryID="true" configRef="true" bufOvfl="true"/>
               <RptEnabled max="1">
-                <ClientLN iedName="Client" apRef="ClientAP" ldInst="CTRL" lnClass="IHMI" lnInst="1"/>
+                <ClientLN iedName="Client1" ldInst="LD0" lnClass="IHMI" lnInst="1"/>
               </RptEnabled>
             </ReportControl>
             <DOI name="NamPlt">

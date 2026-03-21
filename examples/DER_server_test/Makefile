@@ -3,7 +3,7 @@ PROJECT_BINARY_NAME = DER_server
 PROJECT_SOURCES = DER_server.c
 PROJECT_SOURCES += static_model.c
 PROJECT_SOURCES += model.h
-PROJECT_ICD_FILE = DER_project.icd
+PROJECT_ICD_FILE = DER_project.scd
 
 include $(LIBIEC_HOME)/make/target_system.mk
 include $(LIBIEC_HOME)/make/stack_includes.mk
