@@ -1080,7 +1080,7 @@ void *udp_receiver(void *data) {
                         uint32_t Value4 = IedServer_getBitStringAttributeValue(iedServer, ABC[i].var);
                         printf("%u",Value4);
                         char str4[21];
-                        snprintf(str4, sizeof(str4), "%u", param7Str);
+                        snprintf(str4, sizeof(str4), "%s", param7Str);
                         printf("%s",str4);
                         udp_sender(inet_ntoa(client_addr.sin_addr), param1Str, param2Str, param3Str, param4Str, param5Str, param6Str, str4, "OK");
                         found = 1;
