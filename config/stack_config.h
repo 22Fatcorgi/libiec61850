@@ -131,7 +131,7 @@
 #define CONFIG_IEC61850_BRCB_WITH_RESVTMS 1
 
 /* allow only configured clients (when pre-configured by ClientLN) - note behavior in PIXIT Rp13 */
-#define CONFIG_IEC61850_RCB_ALLOW_ONLY_PRECONFIGURED_CLIENT 0
+#define CONFIG_IEC61850_RCB_ALLOW_ONLY_PRECONFIGURED_CLIENT 1
 
 /* The default buffer size of buffered RCBs in bytes */
 #define CONFIG_REPORTING_DEFAULT_REPORT_BUFFER_SIZE 65536
