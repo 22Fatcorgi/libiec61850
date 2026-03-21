@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "model.h"
@@ -810,7 +811,7 @@ void *udp_receiver(void *data) {
                 
                 uint64_t milliseconds = (uint64_t)(currentTime.tv_sec) * 1000ULL + (uint64_t)(currentTime.tv_usec) / 1000ULL;
 
-                printf("Current time in milliseconds (uint64_t): %llu\n", milliseconds);
+                printf("Current time in milliseconds (uint64_t): %"PRIu64"\n", milliseconds);
                 
                 if(strcmp(param8Str, "float") == 0){
                    float_found = 0;
@@ -1020,7 +1021,7 @@ void *udp_receiver(void *data) {
                 
                 uint64_t milliseconds = (uint64_t)(currentTime.tv_sec) * 1000ULL + (uint64_t)(currentTime.tv_usec) / 1000ULL;
 
-                printf("Current time in milliseconds (uint64_t): %llu\n", milliseconds);
+                printf("Current time in milliseconds (uint64_t): %"PRIu64"\n", milliseconds);
                 
                 for (int i = 0; i < 500; i++) {
                     if (strcmp(variableName, ABC[i].str) == 0 && ABC[i].type == 0) {
@@ -1047,9 +1048,9 @@ void *udp_receiver(void *data) {
                     if (strcmp(variableName, ABC[i].str) == 0 && ABC[i].type == 1){
                         //printf("%llu\n",IedServer_getUTCTimeAttributeValue(iedServer, IEDMODEL_ProtCtrl_GGIO1_SPCSO_t));
                         uint64_t TimeStamp = IedServer_getUTCTimeAttributeValue(iedServer, ABC[i].var);
-                        printf("%llu\n",TimeStamp);
+                        printf("%"PRIu64"\n",TimeStamp);
                         char str[21];
-                        snprintf(str, sizeof(str), "%llu", TimeStamp);
+                        snprintf(str, sizeof(str), "%"PRIu64"", TimeStamp);
                         udp_sender(inet_ntoa(client_addr.sin_addr), param1Str, param2Str, param3Str, param4Str, param5Str, param6Str, str, "OK");
                         found = 1;
                         break; 
