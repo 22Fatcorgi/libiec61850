@@ -2572,6 +2572,8 @@ Reporting_RCBWriteAccessHandler(MmsMapping* self, ReportControl* rc, const char*
         }
         else if (strcmp(elementName, "EntryID") == 0)
         {
+            printf("DEBUG: EntryID write handler called!\n");
+
             if (MmsValue_getOctetStringSize(value) != 8)
             {
                 retVal = DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
@@ -2594,6 +2596,24 @@ Reporting_RCBWriteAccessHandler(MmsMapping* self, ReportControl* rc, const char*
             }
             else
             {
+                /* 加這段 */
+                if (rc->reportBuffer->lastEnqueuedReport != NULL) {
+                    printf("DEBUG: lastEnqueuedReport found, entryId = %02X %02X %02X %02X %02X %02X %02X %02X\n",
+                    rc->reportBuffer->lastEnqueuedReport->entryId[0],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[1],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[2],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[3],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[4],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[5],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[6],
+                    rc->reportBuffer->lastEnqueuedReport->entryId[7]);
+
+                    uint8_t* buf = MmsValue_getOctetStringBuffer(value);
+                    memcpy(buf, rc->reportBuffer->lastEnqueuedReport->entryId, 8);
+                } else {
+                    printf("DEBUG: lastEnqueuedReport is NULL (buffer empty!)\n");
+                }
+
                 rc->reportBuffer->nextToTransmit = rc->reportBuffer->oldestReport;
                 rc->reportBuffer->isOverflow = true;
                 rc->isResync = false;
@@ -2751,7 +2771,7 @@ Reporting_RCBWriteAccessHandler(MmsMapping* self, ReportControl* rc, const char*
                 {
                     if (self->iedServer->edition < IEC_61850_EDITION_2_1)
                     {
-                        retVal = DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+                        retVal = DATA_ACCESS_ERROR_SUCCESS;
                     }
                     else
                     {
