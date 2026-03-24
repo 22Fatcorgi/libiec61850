@@ -2170,6 +2170,12 @@ Reporting_RCBWriteAccessHandler(MmsMapping* self, ReportControl* rc, const char*
         goto exit_function;
     }
 
+    if (rc->resvTms > 0 && rc->reserved == false && rc->reservationTimeout > 0)
+    {
+        retVal = DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+        goto exit_function;
+    }
+
 #if (CONFIG_IEC61850_RCB_ALLOW_ONLY_PRECONFIGURED_CLIENT == 1)
     if (rc->resvTms == -1)
     {
