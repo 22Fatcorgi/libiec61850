@@ -1180,7 +1180,7 @@ main(int argc, char** argv)
     IedServerConfig_setReportBufferSize(config, 400000);
 
     /* Set stack compliance to a specific edition of the standard (WARNING: data model has also to be checked for compliance) */
-    IedServerConfig_setEdition(config, IEC_61850_EDITION_2);
+    IedServerConfig_setEdition(config, IEC_61850_EDITION_2_1);
 
     /* Set the base path for the MMS file services */
     IedServerConfig_setFileServiceBasePath(config, "./vmd-filestore/");
