@@ -138,13 +138,14 @@ Quality changeQuality(BehMode newBeh)
 }
 
 
-CheckHandlerResult ackForClient(BehMode newBeh, bool test)
+CheckHandlerResult ackForClient(ControlAction action,BehMode newBeh, bool test)
 {
     switch (newBeh)
     {
         case BEH_ON:
             if(test){
                 printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
                 return CONTROL_OBJECT_ACCESS_DENIED;
             }
             printf("a+ pos.ack\n");
@@ -152,11 +153,13 @@ CheckHandlerResult ackForClient(BehMode newBeh, bool test)
   
         case BEH_ON_BLOCKED:
             printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
             return CONTROL_OBJECT_ACCESS_DENIED;
     
         case BEH_TEST:
             if(!test) {
                 printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
                 return CONTROL_OBJECT_ACCESS_DENIED;
             }
             printf("a+ pos.ack\n");    
@@ -165,6 +168,7 @@ CheckHandlerResult ackForClient(BehMode newBeh, bool test)
         case BEH_TEST_BLOCKED:
             if(!test){
                 printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
                 return CONTROL_OBJECT_ACCESS_DENIED;
             }
             printf("a+ pos.ack/n");
@@ -172,10 +176,12 @@ CheckHandlerResult ackForClient(BehMode newBeh, bool test)
     
         case BEH_OFF:
             printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
             return CONTROL_OBJECT_ACCESS_DENIED;
 
         default:
             printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
             return CONTROL_OBJECT_ACCESS_DENIED;
     }
     return CONTROL_ACCEPTED;   

@@ -9,8 +9,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <errno.h>
-#include <inttypes.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include "model.h"
 #define MAX_BUFFER_SIZE 1024
@@ -46,6 +46,170 @@ bool state;
 static int32_t Anout ;
 
 
+typedef enum {
+    BEH_ON = 1,
+    BEH_ON_BLOCKED = 2,
+    BEH_TEST = 3,
+    BEH_TEST_BLOCKED = 4,
+    BEH_OFF = 5
+} BehMode;
+
+
+typedef enum {
+    MOD_ON = 1,     
+    MOD_ON_BLOCKED = 2, 
+    MOD_TEST = 3,
+    MOD_TEST_BLOCKED = 4,
+    MOD_OFF = 5,
+} Mode;
+
+
+BehMode changeBeh(Mode LN_Mod, Mode LLN0_Mod)
+{
+    switch(LN_Mod)
+    {
+        case MOD_ON:
+            switch(LLN0_Mod)
+            {
+                case MOD_ON:
+                    return BEH_ON;
+                case MOD_ON_BLOCKED:
+                    return BEH_ON_BLOCKED;
+                case MOD_TEST:
+                    return BEH_TEST;   
+                case MOD_TEST_BLOCKED:
+                    return BEH_TEST_BLOCKED;
+                case MOD_OFF:
+                    return BEH_OFF;     
+            }
+        
+        case MOD_ON_BLOCKED:
+            switch(LLN0_Mod)
+            {
+                case MOD_ON:
+                    return BEH_ON_BLOCKED;
+                case MOD_ON_BLOCKED:
+                    return BEH_ON_BLOCKED;
+                case MOD_TEST:
+                    return BEH_TEST_BLOCKED;   
+                case MOD_TEST_BLOCKED:
+                    return BEH_TEST_BLOCKED;
+                case MOD_OFF:
+                    return BEH_OFF;     
+            }           
+
+        case MOD_TEST:
+            switch(LLN0_Mod)
+            {
+                case MOD_ON:
+                    return BEH_TEST;
+                case MOD_ON_BLOCKED:
+                    return BEH_TEST_BLOCKED;
+                case MOD_TEST:
+                    return BEH_TEST;   
+                case MOD_TEST_BLOCKED:
+                    return BEH_TEST_BLOCKED;
+                case MOD_OFF:
+                    return BEH_OFF;     
+            }
+
+        case MOD_TEST_BLOCKED:
+            if(LLN0_Mod != MOD_OFF){
+                return BEH_TEST_BLOCKED;
+            }
+            else{
+                return BEH_OFF;
+            }                
+
+        case MOD_OFF:
+            return BEH_OFF;
+    
+        default:
+            return BEH_OFF;
+    }
+}
+
+
+
+
+
+Quality changeQuality(BehMode newBeh)
+{
+    switch (newBeh)
+    {
+        case BEH_ON:
+            return QUALITY_VALIDITY_GOOD;
+        
+        case BEH_ON_BLOCKED:
+            return QUALITY_VALIDITY_GOOD | QUALITY_OPERATOR_BLOCKED;
+        
+        case BEH_TEST:
+            return QUALITY_VALIDITY_GOOD | QUALITY_TEST;
+        
+        case BEH_TEST_BLOCKED:
+            return QUALITY_VALIDITY_GOOD | QUALITY_TEST | QUALITY_OPERATOR_BLOCKED;
+        
+        case BEH_OFF:
+            return QUALITY_VALIDITY_INVALID;
+                
+        default:
+            return QUALITY_VALIDITY_INVALID;
+    }
+}
+
+
+CheckHandlerResult ackForClient(ControlAction action,BehMode newBeh, bool test)
+{
+    switch (newBeh)
+    {
+        case BEH_ON:
+            if(test){
+                printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+                return CONTROL_OBJECT_ACCESS_DENIED;
+            }
+            printf("a+ pos.ack\n");
+            break;
+  
+        case BEH_ON_BLOCKED:
+            printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+            return CONTROL_OBJECT_ACCESS_DENIED;
+    
+        case BEH_TEST:
+            if(!test) {
+                printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+                return CONTROL_OBJECT_ACCESS_DENIED;
+            }
+            printf("a+ pos.ack\n");    
+            break;
+    
+        case BEH_TEST_BLOCKED:
+            if(!test){
+                printf("a- neg.ack\n");
+                ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+                return CONTROL_OBJECT_ACCESS_DENIED;
+            }
+            printf("a+ pos.ack/n");
+            break;
+    
+        case BEH_OFF:
+            printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+            return CONTROL_OBJECT_ACCESS_DENIED;
+
+        default:
+            printf("a- neg.ack\n");
+            ControlAction_setAddCause(action, ADD_CAUSE_BLOCKED_BY_MODE);
+            return CONTROL_OBJECT_ACCESS_DENIED;
+    }
+    return CONTROL_ACCEPTED;   
+}
+
+
+
+
 void
 sigint_handler(int signalId)
 {
@@ -69,7 +233,9 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1_t, timeStamp);
-        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1_q, q);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_Beh_q, q);
         
         
         }
@@ -89,6 +255,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_CSWI1_Pos_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Pos_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);        
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_Pos_q, q);
         
         
@@ -109,6 +277,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_CSWI1_PosA_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_PosA_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosA_q, q);
         
         
@@ -129,6 +299,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_CSWI1_PosB_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_PosB_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosB_q, q);
         
         
@@ -149,6 +321,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_CSWI1_PosC_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_PosC_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosC_q, q);
         
         
@@ -169,6 +343,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_XCBR1_Pos_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Pos_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_Pos_q, q);
         ctl=(uint8_t)dpc_state;
 
@@ -190,6 +366,8 @@ void *delay_function(void* arg){
         timeStamp = Hal_getTimeInMs();
         IedServer_updateDbposValue(iedServer, IEDMODEL_DER3_XSWI1_Pos_stVal, dpc_state);
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Pos_t, timeStamp);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_Pos_q, q);
         
         
@@ -210,8 +388,20 @@ printValue(char* name, MmsValue* value)
 static ControlHandlerResult
 controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value, bool test)
 {
-    if (test)
-        return CONTROL_RESULT_FAILED;
+    uint64_t timeStamp = Hal_getTimeInMs();
+
+    printf("control handler called\n");
+    printf("  ctlNum: %i\n", ControlAction_getCtlNum(action));
+
+    ClientConnection clientCon = ControlAction_getClientConnection(action);
+
+    if (clientCon) {
+        printf("Control from client %s\n", ClientConnection_getPeerAddress(clientCon));
+    }
+    else {
+        printf("clientCon == NULL!\n");
+    }
+
     /*for (int i = 0; i < MmsValue_getArraySize(value); i++) {
         printf("  [%i]", i);
         printf("%s\n",parameter);
@@ -230,11 +420,12 @@ controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* v
     else
         return CONTROL_RESULT_FAILED;
 */
-    uint64_t timeStamp = Hal_getTimeInMs()+8;
 
     if (parameter == IEDMODEL_DER3_GGIO1_SPCSO1) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1_q, q);
         
         bool start_flag = MmsValue_getBoolean(value);  // 取得 true / false
@@ -265,6 +456,8 @@ controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* v
     if (parameter == IEDMODEL_DER3_CSWI1_LocSta) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_LocSta_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_LocSta_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_LocSta_q, q);
     }
     if (parameter == IEDMODEL_DER3_CSWI1_Pos) {
@@ -323,24 +516,32 @@ controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* v
     if (parameter == IEDMODEL_DER3_XCBR1_LocSta) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_LocSta_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_LocSta_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_LocSta_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XCBR1_BlkOpn) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XCBR1_BlkCls) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_BlkCls_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_BlkCls_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkCls_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XCBR1_ChaMotEna) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna_q, q);
     }
 
@@ -357,24 +558,32 @@ controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* v
     if (parameter == IEDMODEL_DER3_XSWI1_LocSta) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_LocSta_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_LocSta_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_LocSta_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XSWI1_BlkOpn) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XSWI1_BlkCls) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_BlkCls_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_BlkCls_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkCls_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_XSWI1_ChaMotEna) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna_q, q);
     }
 
@@ -399,97 +608,413 @@ controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* v
     if (parameter == IEDMODEL_DER3_SBAT1_ClcStr) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_ClcStr_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_ClcStr_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_ClcStr_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_SBAT1_CelVolRs) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_LocSta) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_LocSta_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_LocSta_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_LocSta_q, q);
     }
     
     if (parameter == IEDMODEL_DER3_DSTO1_ClcStr) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_ClcStr_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_ClcStr_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ClcStr_q, q);
     }
     
     if (parameter == IEDMODEL_DER3_DSTO1_CmdBlk) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_AuthConn) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_AuthConn_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_AuthConn_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthConn_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_CeaEgzCtl) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_EmgMod) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_EmgMod_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_EmgMod_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_EmgMod_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_AuthDscon) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_TestEna) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_TestEna_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_TestEna_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_TestEna_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_Test) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Test_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Test_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_Test_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_ChaWhTotRs) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DSTO1_DschWhTotRs) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DBAT1_ClcStr) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_ClcStr_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_ClcStr_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_ClcStr_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DBAT1_CmdBlk) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk_q, q);
     }
 
     if (parameter == IEDMODEL_DER3_DBAT1_LocSta) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_LocSta_t, timeStamp);
         IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_LocSta_stVal, value);
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);    
+        Quality q = changeQuality(NewBeh);
         IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_LocSta_q, q);
+    }
+
+    if (parameter == IEDMODEL_DER3_LLN0_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal, value);
+
+        Mode GGIO_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Mod_stVal);
+        Mode CSWI_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Mod_stVal);
+        Mode DBAT_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Mod_stVal);
+        Mode SBAT_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Mod_stVal);
+        Mode XCBR_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Mod_stVal);
+        Mode DSTO_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Mod_stVal);
+        Mode XSWI_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Mod_stVal);
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+
+        BehMode GGIO_NewBeh = changeBeh(GGIO_Mod, LLN0_Mod);
+        BehMode CSWI_NewBeh = changeBeh(CSWI_Mod, LLN0_Mod);
+        BehMode DBAT_NewBeh = changeBeh(DBAT_Mod, LLN0_Mod);
+        BehMode SBAT_NewBeh = changeBeh(SBAT_Mod, LLN0_Mod);
+        BehMode XCBR_NewBeh = changeBeh(XCBR_Mod, LLN0_Mod);
+        BehMode DSTO_NewBeh = changeBeh(DSTO_Mod, LLN0_Mod);
+        BehMode XSWI_NewBeh = changeBeh(XSWI_Mod, LLN0_Mod);
+
+        printf("GGIO Beh: %u\n",GGIO_NewBeh);
+        printf("CSWI Beh: %u\n",CSWI_NewBeh);
+        printf("DBAT BEH: %u\n",DBAT_NewBeh);
+        printf("SBAT Beh: %u\n",SBAT_NewBeh);
+        printf("XCBR Beh: %u\n",XCBR_NewBeh);
+        printf("DSTO Beh: %u\n",DSTO_NewBeh);
+        printf("XSWI Beh: %u\n",XSWI_NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal, (int32_t)GGIO_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal, (int32_t)CSWI_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal, (int32_t)DBAT_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal, (int32_t)SBAT_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal, (int32_t)XCBR_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal, (int32_t)DSTO_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_t, timeStamp);
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal, (int32_t)XSWI_NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_t, timeStamp);
+
+        printf("Changed Mod successful!\n");
+    
+        Quality GGIO_q = changeQuality(GGIO_NewBeh);
+        Quality CSWI_q = changeQuality(CSWI_NewBeh);
+        Quality DBAT_q = changeQuality(DBAT_NewBeh);
+        Quality SBAT_q = changeQuality(SBAT_NewBeh);
+        Quality XCBR_q = changeQuality(XCBR_NewBeh);
+        Quality DSTO_q = changeQuality(DSTO_NewBeh);
+        Quality XSWI_q = changeQuality(XSWI_NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_Beh_q, GGIO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1_q, GGIO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1_q, GGIO_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_Beh_q, CSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_Pos_q, CSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosA_q, CSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosB_q, CSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosC_q, CSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_LocSta_q, CSWI_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_Beh_q, DBAT_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk_q, DBAT_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_LocSta_q, DBAT_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_ClcStr_q, DBAT_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_Beh_q, SBAT_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_ClcStr_q, SBAT_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs_q, SBAT_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_Beh_q, XCBR_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_LocSta_q, XCBR_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_Pos_q, XCBR_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn_q, XCBR_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkCls_q, XCBR_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna_q, XCBR_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_Beh_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthConn_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_EmgMod_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_TestEna_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_Test_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_LocSta_q, DSTO_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ClcStr_q, DSTO_q);
+
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_Beh_q, XSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_LocSta_q, XSWI_q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_Pos_q, XSWI_q);    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn_q, XSWI_q);  
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkCls_q, XSWI_q);  
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna_q, XSWI_q);  
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_GGIO1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1_q, q);
+   
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_CSWI1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_Pos_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosA_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosB_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_PosC_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_CSWI1_LocSta_q, q); 
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_DBAT1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_LocSta_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DBAT1_ClcStr_q, q);
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_SBAT1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_ClcStr_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs_q, q);
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_XCBR1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_LocSta_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_Pos_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_BlkCls_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna_q, q);
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_DSTO1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthConn_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_EmgMod_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_TestEna_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_Test_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_LocSta_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_DSTO1_ClcStr_q, q);
+    
+        printf("Changed q successful!\n");
+    }
+
+    if (parameter == IEDMODEL_DER3_XSWI1_Mod) {
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Mod_t, timeStamp);
+        IedServer_updateAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Mod_stVal, value);
+
+        Mode LLN0_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_LLN0_Mod_stVal);
+        Mode LN_Mod = (Mode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Mod_stVal);
+        BehMode NewBeh = changeBeh(LN_Mod, LLN0_Mod);
+        
+        printf("%u\n",NewBeh);
+
+        IedServer_updateInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal, (int32_t)NewBeh);
+        IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_t, timeStamp);
+        printf("Changed Mod successful!\n");
+    
+        Quality q = changeQuality(NewBeh);
+    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_Beh_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_LocSta_q, q);
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_Pos_q, q);    
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn_q, q);  
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_BlkCls_q, q);  
+        IedServer_updateQuality(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna_q, q);
+    
+        printf("Changed q successful!\n");
     }
 
     return CONTROL_RESULT_OK;
@@ -517,98 +1042,146 @@ checkHandler(ControlAction action, void* parameter, MmsValue* ctlVal, bool test,
 
     printf("  ctlNum: %i\n", ControlAction_getCtlNum(action));
 
-    if (parameter == IEDMODEL_DER3_CSWI1_Pos)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_CSWI1_Pos){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
 
-    if (parameter == IEDMODEL_DER3_GGIO1_SPCSO1)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_GGIO1_SPCSO1){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
     
     if (parameter == IEDMODEL_DER3_GGIO1_ISCSO1)
         return CONTROL_ACCEPTED;
     
-    if (parameter == IEDMODEL_DER3_GGIO1_DPCSO1)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_GGIO1_DPCSO1){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_GGIO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
     if (parameter == IEDMODEL_DER3_ZBAT1_BatTest)
         return CONTROL_ACCEPTED;
+
+    if (parameter == IEDMODEL_DER3_CSWI1_PosA){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_CSWI1_PosA)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_CSWI1_PosB){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_CSWI1_PosB)
-        return CONTROL_ACCEPTED;
-        
-    if (parameter == IEDMODEL_DER3_CSWI1_PosC)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_CSWI1_PosC){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
 
     if (parameter == IEDMODEL_DER3_CSWI1_OpCntRs)
         return CONTROL_ACCEPTED;
 
-    if (parameter == IEDMODEL_DER3_CSWI1_LocSta)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_CSWI1_LocSta){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_CSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
 
-    if (parameter == IEDMODEL_DER3_XCBR1_LocSta)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_XCBR1_LocSta){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_XCBR1_ChaMotEna)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XCBR1_ChaMotEna){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }    
         
-    if (parameter == IEDMODEL_DER3_XCBR1_Pos)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_XCBR1_Pos){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_XCBR1_BlkOpn)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XCBR1_BlkOpn){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_XCBR1_BlkCls)
-        return CONTROL_ACCEPTED;               
+    if (parameter == IEDMODEL_DER3_XCBR1_BlkCls){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XCBR1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_XSWI1_LocSta)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XSWI1_LocSta){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }    
         
-    if (parameter == IEDMODEL_DER3_XSWI1_Pos)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XSWI1_Pos){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_XSWI1_BlkOpn)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XSWI1_BlkOpn){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_XSWI1_BlkCls)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XSWI1_BlkCls){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_XSWI1_ChaMotEna)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_XSWI1_ChaMotEna){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_XSWI1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
     if (parameter == IEDMODEL_DER3_DBAT1_Mod)
         return CONTROL_ACCEPTED;
         
-    if (parameter == IEDMODEL_DER3_DBAT1_ClcStr)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DBAT1_ClcStr){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_DBAT1_LocSta)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DBAT1_LocSta){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_DBAT1_CmdBlk)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DBAT1_CmdBlk){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DBAT1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
     if (parameter == IEDMODEL_DER3_DBAT1_OpCntRs)
         return CONTROL_ACCEPTED;    
         
-    if (parameter == IEDMODEL_DER3_DSTO1_LocSta)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DSTO1_LocSta){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    } 
         
-    if (parameter == IEDMODEL_DER3_DSTO1_CmdBlk)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DSTO1_CmdBlk){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }    
         
     if (parameter == IEDMODEL_DER3_DSTO1_OpCntRs)
         return CONTROL_ACCEPTED;    
         
-    if (parameter == IEDMODEL_DER3_DSTO1_AuthConn)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DSTO1_AuthConn){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
     if (parameter == IEDMODEL_DER3_DSTO1_DEROpStCtl)
         return CONTROL_ACCEPTED;    
         
-    if (parameter == IEDMODEL_DER3_DSTO1_CeaEgzCtl)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DSTO1_CeaEgzCtl){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
     if (parameter == IEDMODEL_DER3_DSTO1_WSpt)
         return CONTROL_ACCEPTED;    
@@ -616,26 +1189,40 @@ checkHandler(ControlAction action, void* parameter, MmsValue* ctlVal, bool test,
     if (parameter == IEDMODEL_DER3_DSTO1_VArSpt)
         return CONTROL_ACCEPTED;    
         
-    if (parameter == IEDMODEL_DER3_DSTO1_EmgMod)
-        return CONTROL_ACCEPTED;    
+    if (parameter == IEDMODEL_DER3_DSTO1_EmgMod){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_AuthDscon)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_AuthDscon){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_TestEna)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_TestEna){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_Test)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_Test){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_ChaWhTotRs)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_ChaWhTotRs){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_DschWhTotRs)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_DschWhTotRs){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
-    if (parameter == IEDMODEL_DER3_DSTO1_ClcStr)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_DSTO1_ClcStr){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_DSTO1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
     if (parameter == IEDMODEL_DER3_DSTO1_Mod)
         return CONTROL_ACCEPTED;
@@ -643,15 +1230,19 @@ checkHandler(ControlAction action, void* parameter, MmsValue* ctlVal, bool test,
     if (parameter == IEDMODEL_DER3_SBAT1_Mod)
         return CONTROL_ACCEPTED;
         
-    if (parameter == IEDMODEL_DER3_SBAT1_ClcStr)
-        return CONTROL_ACCEPTED;
+    if (parameter == IEDMODEL_DER3_SBAT1_ClcStr){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);        
+    }
         
     if (parameter == IEDMODEL_DER3_SBAT1_OpCntRs)
         return CONTROL_ACCEPTED;
 
-    if (parameter == IEDMODEL_DER3_SBAT1_CelVolRs)
-        return CONTROL_ACCEPTED;
-
+    if (parameter == IEDMODEL_DER3_SBAT1_CelVolRs){
+        BehMode NewBeh = (BehMode)IedServer_getUInt32AttributeValue(iedServer, IEDMODEL_DER3_SBAT1_Beh_stVal);
+        return ackForClient(action, NewBeh, test);
+    }
+    
     if (parameter == IEDMODEL_DER3_DECP1_Mod)
         return CONTROL_ACCEPTED;
 
@@ -672,7 +1263,21 @@ checkHandler(ControlAction action, void* parameter, MmsValue* ctlVal, bool test,
 
     if (parameter == IEDMODEL_DER3_GGIO1_AnOut1)
         return CONTROL_ACCEPTED;    
-        
+
+    if (parameter == IEDMODEL_DER3_LLN0_Mod)
+        return CONTROL_ACCEPTED;
+
+    if (parameter == IEDMODEL_DER3_GGIO1_Mod)
+        return CONTROL_ACCEPTED;
+
+    if (parameter == IEDMODEL_DER3_CSWI1_Mod)
+        return CONTROL_ACCEPTED;
+
+    if (parameter == IEDMODEL_DER3_XCBR1_Mod)
+        return CONTROL_ACCEPTED;
+
+    if (parameter == IEDMODEL_DER3_XSWI1_Mod)
+        return CONTROL_ACCEPTED;
 
     return CONTROL_OBJECT_UNDEFINED;
 }
@@ -1197,6 +1802,10 @@ main(int argc, char** argv)
     /* set maximum number of clients */
     IedServerConfig_setMaxMmsConnections(config, 5);
     
+    IedServerConfig_enableOwnerForRCB(config, true);
+
+    IedServerConfig_enableResvTmsForBRCB(config, true);
+
     /* Create a new IEC 61850 server instance */
     iedServer = IedServer_createWithConfig(&iedModel, NULL, config);
 
@@ -1228,6 +1837,14 @@ main(int argc, char** argv)
     IedServer_setServerIdentity(iedServer, "MZ", "basic io", "1.4.2");
 
     /* Install handler for operate command */
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_LLN0_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_LLN0_Mod);
+
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_GGIO1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_GGIO1_Mod);
+
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_GGIO1_SPCSO1);
@@ -1235,7 +1852,10 @@ main(int argc, char** argv)
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_GGIO1_DPCSO1);
-            
+
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_CSWI1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_CSWI1_Mod);            
             
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_CSWI1_LocSta,
             (ControlHandler) controlHandlerForBinaryOutput,
@@ -1256,6 +1876,10 @@ main(int argc, char** argv)
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_CSWI1_PosC,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_CSWI1_PosC);
+
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_XCBR1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_XCBR1_Mod);            
             
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_XCBR1_LocSta,
             (ControlHandler) controlHandlerForBinaryOutput,
@@ -1277,6 +1901,10 @@ main(int argc, char** argv)
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_XCBR1_ChaMotEna);
             
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_XSWI1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_XSWI1_Mod);
+
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_XSWI1_LocSta,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_XSWI1_LocSta);
@@ -1308,7 +1936,11 @@ main(int argc, char** argv)
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DPCC1_ClcStr,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_DPCC1_ClcStr);
-            
+
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_SBAT1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_SBAT1_Mod);  
+
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_SBAT1_ClcStr,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_SBAT1_ClcStr); 
@@ -1316,6 +1948,10 @@ main(int argc, char** argv)
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_SBAT1_CelVolRs); 
+
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DSTO1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_DSTO1_Mod);            
 
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DSTO1_LocSta,
             (ControlHandler) controlHandlerForBinaryOutput,
@@ -1361,6 +1997,10 @@ main(int argc, char** argv)
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_DSTO1_DschWhTotRs);
 
+    IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DBAT1_Mod,
+            (ControlHandler) controlHandlerForBinaryOutput,
+            IEDMODEL_DER3_DBAT1_Mod); 
+
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DBAT1_ClcStr,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_DER3_DBAT1_ClcStr); 
@@ -1371,7 +2011,134 @@ main(int argc, char** argv)
 
     IedServer_setControlHandler(iedServer, IEDMODEL_DER3_DBAT1_LocSta,
             (ControlHandler) controlHandlerForBinaryOutput,
-            IEDMODEL_DER3_DBAT1_LocSta);   
+            IEDMODEL_DER3_DBAT1_LocSta);
+
+            
+
+    /* Install handler for check command */
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_LLN0_Mod, checkHandler,
+            IEDMODEL_DER3_LLN0_Mod);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_GGIO1_Mod, checkHandler,
+            IEDMODEL_DER3_GGIO1_Mod);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_GGIO1_SPCSO1, checkHandler,
+            IEDMODEL_DER3_GGIO1_SPCSO1);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_GGIO1_DPCSO1, checkHandler,
+            IEDMODEL_DER3_GGIO1_DPCSO1);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_Mod, checkHandler,
+            IEDMODEL_DER3_CSWI1_Mod);            
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_LocSta, checkHandler,
+            IEDMODEL_DER3_CSWI1_LocSta);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_Pos, checkHandler,
+            IEDMODEL_DER3_CSWI1_Pos);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_PosA, checkHandler,
+            IEDMODEL_DER3_CSWI1_PosA);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_PosB, checkHandler,
+            IEDMODEL_DER3_CSWI1_PosB);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_CSWI1_PosC, checkHandler,
+            IEDMODEL_DER3_CSWI1_PosC);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_Mod, checkHandler,
+            IEDMODEL_DER3_XCBR1_Mod);            
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_LocSta, checkHandler,
+            IEDMODEL_DER3_XCBR1_LocSta);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_Pos, checkHandler,
+            IEDMODEL_DER3_XCBR1_Pos);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_BlkOpn, checkHandler,
+            IEDMODEL_DER3_XCBR1_BlkOpn);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_BlkCls, checkHandler,
+            IEDMODEL_DER3_XCBR1_BlkCls);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XCBR1_ChaMotEna, checkHandler,
+            IEDMODEL_DER3_XCBR1_ChaMotEna);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_Mod, checkHandler,
+            IEDMODEL_DER3_XSWI1_Mod);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_LocSta, checkHandler,
+            IEDMODEL_DER3_XSWI1_LocSta);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_Pos, checkHandler,
+            IEDMODEL_DER3_XSWI1_Pos);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_BlkOpn, checkHandler,
+            IEDMODEL_DER3_XSWI1_BlkOpn);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_BlkCls, checkHandler,
+            IEDMODEL_DER3_XSWI1_BlkCls);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_XSWI1_ChaMotEna, checkHandler,
+            IEDMODEL_DER3_XSWI1_ChaMotEna);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_SBAT1_Mod, checkHandler,
+            IEDMODEL_DER3_SBAT1_Mod);  
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_SBAT1_ClcStr, checkHandler,
+            IEDMODEL_DER3_SBAT1_ClcStr); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_SBAT1_CelVolRs, checkHandler,
+            IEDMODEL_DER3_SBAT1_CelVolRs); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_Mod, checkHandler,
+            IEDMODEL_DER3_DSTO1_Mod);            
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_LocSta, checkHandler,
+            IEDMODEL_DER3_DSTO1_LocSta); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_CmdBlk, checkHandler,
+            IEDMODEL_DER3_DSTO1_CmdBlk); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_AuthConn, checkHandler,
+            IEDMODEL_DER3_DSTO1_AuthConn); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_CeaEgzCtl, checkHandler,
+            IEDMODEL_DER3_DSTO1_CeaEgzCtl); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_EmgMod, checkHandler,
+            IEDMODEL_DER3_DSTO1_EmgMod); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_AuthDscon, checkHandler,
+            IEDMODEL_DER3_DSTO1_AuthDscon);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_TestEna, checkHandler,
+            IEDMODEL_DER3_DSTO1_TestEna); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_Test, checkHandler,
+            IEDMODEL_DER3_DSTO1_Test); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_ChaWhTotRs, checkHandler,
+            IEDMODEL_DER3_DSTO1_ChaWhTotRs);
+            
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_ClcStr, checkHandler,
+            IEDMODEL_DER3_DSTO1_ClcStr); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DSTO1_DschWhTotRs, checkHandler,
+            IEDMODEL_DER3_DSTO1_DschWhTotRs);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DBAT1_Mod, checkHandler,
+            IEDMODEL_DER3_DBAT1_Mod); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DBAT1_ClcStr, checkHandler,
+            IEDMODEL_DER3_DBAT1_ClcStr); 
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DBAT1_CmdBlk, checkHandler,
+            IEDMODEL_DER3_DBAT1_CmdBlk);
+
+    IedServer_setPerformCheckHandler(iedServer, IEDMODEL_DER3_DBAT1_LocSta, checkHandler,
+            IEDMODEL_DER3_DBAT1_LocSta);
+
 
     IedServer_setConnectionIndicationHandler(iedServer, (IedConnectionIndicationHandler) connectionHandler, NULL);
 
@@ -1379,6 +2146,7 @@ main(int argc, char** argv)
 
     /* Allow write access to CF parameters (here "db" and "rangeC") */
     IedServer_setWriteAccessPolicy(iedServer, IEC61850_FC_CF, ACCESS_POLICY_ALLOW);
+    IedServer_setWriteAccessPolicy(iedServer, IEC61850_FC_ST, ACCESS_POLICY_ALLOW);
 
     /* By default access to variables with FC=DC and FC=CF is not allowed.
      * This allow to write to simpleIOGenericIO/GGIO1.NamPlt.vendor variable used
