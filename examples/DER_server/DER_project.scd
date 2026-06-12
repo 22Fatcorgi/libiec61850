@@ -15,6 +15,12 @@
           <P type="OSI-TSEL">0001</P>
         </Address>
       </ConnectedAP>
+      <ConnectedAP iedName="Client1" apName="P1">
+        <Address>
+          <P type="IP">192.168.50.187</P>
+	  <P type="IP-SUBNET">255.255.255.0</P>
+        </Address>
+      </ConnectedAP>
     </SubNetwork>
   </Communication>
   <IED name="projectDER" configVersion="1.0" type="" manufacturer="" desc="">
@@ -483,7 +489,7 @@
               <TrgOps dchg="true" qchg="true" dupd="true" period="true" gi="true"/>
               <OptFields seqNum="true" timeStamp="true" dataSet="true" reasonCode="true" dataRef="true" entryID="true" configRef="true" bufOvfl="true"/>
               <RptEnabled max="1">
-                <ClientLN iedName="Client" apRef="ClientAP" ldInst="CTRL" lnClass="IHMI" lnInst="1"/>
+                <ClientLN iedName="Client1" ldInst="LD0" lnClass="IHMI" lnInst="1"/>
               </RptEnabled>
             </ReportControl>
             <ReportControl buffered="false" name="D1234567890123456789012345678901" datSet="A1234567890123456789012345678901" bufTime="1000" intgPd="0" confRev="1" rptID="C1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678" indexed="false">
@@ -494,7 +500,9 @@
             <ReportControl buffered="false" name="URTEST" datSet="Test" bufTime="1000" intgPd="0" confRev="1" indexed="true">
               <TrgOps dchg="true" qchg="true" dupd="true" period="true" gi="true"/>
               <OptFields seqNum="true" timeStamp="true" dataSet="true" reasonCode="true" dataRef="true" configRef="true" bufOvfl="false"/>
-              <RptEnabled max="1"/>
+              <RptEnabled max="1">
+                <ClientLN iedName="Client1" ldInst="LD0" lnClass="IHMI" lnInst="1"/>
+              </RptEnabled>
             </ReportControl>
             <DOI name="NamPlt">
               <DAI name="ldNs">
